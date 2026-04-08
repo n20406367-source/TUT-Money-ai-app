@@ -795,6 +795,20 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const testConnection = async () => {
+      try {
+        await getDocFromServer(doc(db, 'system', 'connection_test'));
+      } catch (error: any) {
+        if (error.message?.includes('the client is offline') || error.message?.includes('permission-denied')) {
+          console.error("Firebase Connection Error:", error);
+          // Don't show alert to everyone, but log it for developers
+        }
+      }
+    };
+    testConnection();
+  }, []);
+
+  useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       console.log("Auth state changed:", u?.email, u?.uid);
       setUser(u);
@@ -1004,8 +1018,10 @@ export default function App() {
         console.log("Popup request cancelled due to a newer request.");
       } else if (error.code === 'auth/popup-blocked') {
         setGlobalError("The login popup was blocked by your browser. Please allow popups for this site and try again.");
+      } else if (error.code === 'auth/unauthorized-domain') {
+        setGlobalError("This domain is not authorized for Firebase Authentication. Please add this URL to the 'Authorized domains' list in your Firebase Console.");
       } else {
-        setGlobalError(`Login failed: ${error.message}`);
+        setGlobalError(`Login failed: ${error.message}. If you just deployed, make sure to add this URL to your Firebase Authorized Domains.`);
       }
     } finally {
       setIsLoggingIn(false);
