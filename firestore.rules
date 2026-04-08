@@ -42,7 +42,7 @@ service cloud.firestore {
     function isAdmin() {
       return isAuthenticated() && 
         (
-          request.auth.token.email == "tahsinullahtusher999@gmail.com" ||
+          request.auth.token.email.lower() == "tahsinullahtusher999@gmail.com" ||
           (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
         );
@@ -78,7 +78,8 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read, list: if isAuthenticated() && (isOwner(userId) || isAdmin());
+      allow get: if isAuthenticated() && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
       allow create: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data) && 
                     (request.resource.data.role == 'member' || (request.resource.data.role == 'admin' && isAdmin()));
       allow update: if isAuthenticated() && (
@@ -86,6 +87,16 @@ service cloud.firestore {
         isAdmin()
       ) && isValidUser(request.resource.data);
       allow delete: if isAdmin();
+    }
+
+    match /users_public/{email} {
+      allow read: if true;
+      allow write: if isAdmin() || (isAuthenticated() && request.resource.data.email == email);
+    }
+
+    match /system/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
     }
 
     match /transactions/{transactionId} {

@@ -12,7 +12,10 @@ import {
   GoogleAuthProvider, 
   onAuthStateChanged, 
   signOut,
-  User as FirebaseUser
+  User as FirebaseUser,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  sendPasswordResetEmail
 } from 'firebase/auth';
 import { 
   doc, 
@@ -28,7 +31,8 @@ import {
   orderBy,
   getDocFromServer,
   Timestamp,
-  deleteDoc
+  deleteDoc,
+  getDocs
 } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -59,7 +63,8 @@ import {
   User,
   Facebook,
   MessageSquare,
-  Send
+  Send,
+  RefreshCw
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { clsx, type ClassValue } from 'clsx';
@@ -67,7 +72,7 @@ import { twMerge } from 'tailwind-merge';
 import { useRef } from 'react';
 
 // --- Constants ---
-const ADMIN_EMAIL = 'tahsinullahtusher999@gmail.com'.toLowerCase();
+const ADMIN_EMAIL = (import.meta.env.VITE_ADMIN_EMAIL || 'tahsinullahtusher999@gmail.com').toLowerCase();
 
 // --- Utils ---
 function cn(...inputs: ClassValue[]) {
@@ -434,6 +439,7 @@ export default function App() {
   const [adminPin, setAdminPin] = useState('');
   const [adminError, setAdminError] = useState('');
   const [globalError, setGlobalError] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
   
   // Edit Member State
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
@@ -823,6 +829,43 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const migrateUser = async () => {
+      if (user && !profile && isAuthReady) {
+        // If we have a user but no profile, check if a profile exists with this email
+        try {
+          const q = query(collection(db, 'users'), where('email', '==', user.email?.toLowerCase()));
+          const querySnapshot = await getDocs(q);
+          if (!querySnapshot.empty) {
+            const existingDoc = querySnapshot.docs[0];
+            const existingData = existingDoc.data() as UserProfile;
+            console.log("Found existing profile by email. Migrating UID...");
+            
+            // Update the profile with the new UID
+            const updatedProfile = { ...existingData, uid: user.uid };
+            await setDoc(doc(db, 'users', user.uid), updatedProfile);
+            
+            // Update public registry too
+            await setDoc(doc(db, 'users_public', user.email!.toLowerCase().trim()), {
+              email: user.email!.toLowerCase().trim(),
+              name: existingData.name,
+              uid: user.uid,
+              hasPassword: true
+            });
+            
+            // Delete old document if UID changed
+            if (existingDoc.id !== user.uid) {
+              await deleteDoc(doc(db, 'users', existingDoc.id));
+            }
+          }
+        } catch (error) {
+          console.error("Migration error:", error);
+        }
+      }
+    };
+    migrateUser();
+  }, [user, profile, isAuthReady]);
+
+  useEffect(() => {
     if (!isAuthReady || !user) return;
 
     const path = `users/${user.uid}`;
@@ -989,7 +1032,11 @@ export default function App() {
   const handleDeleteUser = async () => {
     if (!userToDelete) return;
     try {
+      const emailToDelete = userToDelete.email?.toLowerCase().trim();
       await deleteDoc(doc(db, 'users', userToDelete.uid));
+      if (emailToDelete) {
+        await deleteDoc(doc(db, 'users_public', emailToDelete));
+      }
       setShowDeleteModal(false);
       setUserToDelete(null);
       alert("Member account deleted successfully!");
@@ -1000,32 +1047,282 @@ export default function App() {
   };
 
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [authStep, setAuthStep] = useState<'email' | 'password' | 'register'>('email');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPhone, setAuthPhone] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [foundProfile, setFoundProfile] = useState<UserProfile | null>(null);
 
-  const handleLogin = async () => {
-    if (isLoggingIn) return;
+  const handleEmailCheck = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isLoggingIn || !authEmail) return;
     setIsLoggingIn(true);
     setGlobalError(null);
     try {
-      const provider = new GoogleAuthProvider();
-      // Use popup for better compatibility in iframe environments
-      await signInWithPopup(auth, provider);
+      // 1. Check if email exists in users_public (Publicly readable)
+      const publicDoc = await getDoc(doc(db, 'users_public', authEmail.toLowerCase().trim()));
+      
+      if (publicDoc.exists()) {
+        const publicData = publicDoc.data();
+        // Double check if the user actually exists in Auth (we can't do this directly without trying to sign in, 
+        // but we can at least provide a better path if sign-in fails)
+        setFoundProfile({ name: publicData.name, email: authEmail.toLowerCase().trim() } as any);
+        setAuthStep('password');
+      } else {
+        // 2. Fallback: Check main users collection by email (in case registry is out of sync)
+        const q = query(collection(db, 'users'), where('email', '==', authEmail.toLowerCase().trim()));
+        const querySnapshot = await getDocs(q);
+        
+        if (!querySnapshot.empty) {
+          const userData = querySnapshot.docs[0].data();
+          setFoundProfile({ name: userData.name, email: authEmail.toLowerCase().trim() } as any);
+          setAuthStep('password');
+          
+          // Repair users_public registry
+          await setDoc(doc(db, 'users_public', authEmail.toLowerCase().trim()), {
+            email: authEmail.toLowerCase().trim(),
+            name: userData.name,
+            uid: userData.uid,
+            hasPassword: true
+          });
+        } else {
+          // No profile found anywhere, go to registration
+          setFoundProfile(null);
+          setAuthStep('register');
+          setRegData(prev => ({ ...prev, email: authEmail.toLowerCase().trim() }));
+        }
+      }
+    } catch (error: any) {
+      console.error("Email check failed", error);
+      setGlobalError(`Error: ${error.message}`);
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!authEmail) {
+      alert("Please enter your email address first.");
+      return;
+    }
+    try {
+      await sendPasswordResetEmail(auth, authEmail);
+      alert("Password reset link sent to " + authEmail + "! Please check your Inbox and Spam folder.");
+    } catch (error: any) {
+      console.error("Password reset error:", error);
+      alert("Error sending reset email: " + error.message);
+    }
+  };
+
+  const handleEmailLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isLoggingIn || !authEmail || !authPassword) return;
+    setIsLoggingIn(true);
+    setGlobalError(null);
+    const cleanEmail = authEmail.toLowerCase().trim();
+    
+    try {
+      // 1. Pre-check: Does this user exist in our system?
+      // This prevents "mistakes" where users try to login to non-existent accounts
+      const publicDoc = await getDoc(doc(db, 'users_public', cleanEmail));
+      let userExists = publicDoc.exists();
+      
+      if (!userExists) {
+        // Fallback check in main users collection
+        const q = query(collection(db, 'users'), where('email', '==', cleanEmail));
+        const querySnapshot = await getDocs(q);
+        userExists = !querySnapshot.empty;
+        
+        if (userExists) {
+          // Repair public registry if found in main collection
+          const userData = querySnapshot.docs[0].data();
+          await setDoc(doc(db, 'users_public', cleanEmail), {
+            email: cleanEmail,
+            name: userData.name,
+            uid: userData.uid,
+            hasPassword: true
+          });
+        }
+      }
+
+      if (!userExists) {
+        console.log("Pre-check: User not in database, but might be in Auth. Proceeding with login attempt...");
+      }
+
+      // 2. Attempt Auth Login
+      const userCredential = await signInWithEmailAndPassword(auth, cleanEmail, authPassword);
+      const u = userCredential.user;
+
+      // 3. Post-Login Verification: Ensure profile is linked correctly
+      // This handles cases where UID might have changed or profile is detached
+      const profileDoc = await getDoc(doc(db, 'users', u.uid));
+      if (!profileDoc.exists()) {
+        console.log("Profile missing after login, attempting recovery...");
+        const q = query(collection(db, 'users'), where('email', '==', cleanEmail));
+        const querySnapshot = await getDocs(q);
+        
+        if (!querySnapshot.empty) {
+          const existingDoc = querySnapshot.docs[0];
+          const existingData = existingDoc.data();
+          console.log("Found detached profile, migrating...");
+          
+          await setDoc(doc(db, 'users', u.uid), { ...existingData, uid: u.uid });
+          if (existingDoc.id !== u.uid) {
+            await deleteDoc(doc(db, 'users', existingDoc.id));
+          }
+        } else {
+          // Truly no profile found, will trigger auto-registration useEffect
+          console.log("No profile found even after recovery attempt.");
+        }
+      }
+
+      setShowAuthModal(false);
+      resetAuthFields();
+      addToast('Welcome Back', 'Secure connection established.', 'success');
     } catch (error: any) {
       console.error("Login failed", error);
-      if (error.code === 'auth/popup-closed-by-user') {
-        setGlobalError("The login popup was closed before completion. Please try again and keep the popup window open until finished.");
-      } else if (error.code === 'auth/cancelled-popup-request') {
-        // This happens if the user clicks login multiple times quickly
-        console.log("Popup request cancelled due to a newer request.");
-      } else if (error.code === 'auth/popup-blocked') {
-        setGlobalError("The login popup was blocked by your browser. Please allow popups for this site and try again.");
+      if (error.code === 'auth/operation-not-allowed') {
+        setGlobalError("Email/Password login is not enabled.");
       } else if (error.code === 'auth/unauthorized-domain') {
-        setGlobalError("This domain is not authorized for Firebase Authentication. Please add this URL to the 'Authorized domains' list in your Firebase Console.");
+        setGlobalError("Domain not authorized.");
+      } else if (error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found') {
+        setGlobalError("Invalid email or password. Please try again.");
+      } else if (error.code === 'auth/too-many-requests') {
+        setGlobalError("Too many attempts. Please try again later.");
       } else {
-        setGlobalError(`Login failed: ${error.message}. If you just deployed, make sure to add this URL to your Firebase Authorized Domains.`);
+        setGlobalError(`Login failed: ${error.message}`);
       }
     } finally {
       setIsLoggingIn(false);
     }
+  };
+
+  const handleEmailRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isLoggingIn) return;
+    
+    const cleanEmail = authEmail.toLowerCase().trim();
+    const cleanPhone = regData.phone.trim();
+
+    if (!cleanEmail.includes('@')) {
+      alert("Please enter a valid email address.");
+      return;
+    }
+
+    if (cleanPhone.length !== 11 || !cleanPhone.startsWith('0')) {
+      alert("Phone number must be 11 digits starting with 0");
+      return;
+    }
+
+    if (authPassword.length < 6) {
+      alert("Password must be at least 6 characters.");
+      return;
+    }
+
+    setIsLoggingIn(true);
+    setGlobalError(null);
+    try {
+      // 1. Pre-check: Does this email already have a profile?
+      const publicDoc = await getDoc(doc(db, 'users_public', cleanEmail));
+      let exists = publicDoc.exists();
+      
+      if (!exists) {
+        const q = query(collection(db, 'users'), where('email', '==', cleanEmail));
+        const querySnapshot = await getDocs(q);
+        exists = !querySnapshot.empty;
+      }
+
+      if (exists) {
+        setGlobalError("This email is already registered. Please use the 'Log In' option instead.");
+        setAuthStep('password'); // Automatically switch to password step for login
+        setIsLoggingIn(false);
+        return;
+      }
+
+      // 2. Create Auth account
+      const userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, authPassword);
+      const u = userCredential.user;
+
+      // 2. Create Profile
+      const isBootstrapAdmin = cleanEmail === ADMIN_EMAIL;
+      const newProfile: any = {
+        uid: u.uid,
+        email: cleanEmail,
+        name: regData.name.trim(),
+        nid: regData.nid.trim(),
+        address: regData.address.trim(),
+        occupation: regData.occupation.trim(),
+        phone: cleanPhone,
+        status: isBootstrapAdmin ? 'approved' : 'pending',
+        totalLoan: 0,
+        totalDeposit: 0,
+        remainingDebt: 0,
+        role: isBootstrapAdmin ? 'admin' : 'member',
+        createdAt: serverTimestamp()
+      };
+      
+      if (isBootstrapAdmin) {
+        newProfile.memberId = `TUT-ADM-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+      }
+
+      await setDoc(doc(db, 'users', u.uid), newProfile);
+      
+      // Also update public registry
+      await setDoc(doc(db, 'users_public', cleanEmail), {
+        email: cleanEmail,
+        name: regData.name.trim(),
+        uid: u.uid,
+        hasPassword: true
+      });
+
+      setShowAuthModal(false);
+      resetAuthFields();
+      addToast('Registration Successful', 'Your application is now pending approval.', 'success');
+    } catch (error: any) {
+      console.error("Registration failed", error);
+      if (error.code === 'auth/email-already-in-use') {
+        setGlobalError("This email is already registered in our system. Please try logging in instead.");
+        setAuthStep('password'); // Switch to login
+      } else if (error.code === 'auth/weak-password') {
+        setGlobalError("Password is too weak. Please use at least 6 characters.");
+      } else {
+        setGlobalError(`Registration failed: ${error.message}`);
+      }
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isAuthReady && user && !profile && !loading) {
+      // User is logged in but has no profile - auto-open registration
+      setAuthStep('register');
+      setAuthEmail(user.email || '');
+      setRegData(prev => ({ ...prev, email: user.email || '' }));
+      setShowAuthModal(true);
+    }
+  }, [isAuthReady, user, profile, loading]);
+
+  const resetAuthFields = () => {
+    setAuthEmail('');
+    setAuthPhone('');
+    setAuthPassword('');
+    setAuthStep('email');
+    setFoundProfile(null);
+    setRegData({
+      name: '',
+      email: '',
+      nid: '',
+      address: '',
+      occupation: '',
+      phone: ''
+    });
+  };
+
+  const handleLogin = async () => {
+    resetAuthFields();
+    setShowAuthModal(true);
   };
 
   const handleRegister = async (e: React.FormEvent) => {
@@ -1061,6 +1358,15 @@ export default function App() {
 
       console.log("Attempting to register profile:", newProfile);
       await setDoc(doc(db, 'users', user.uid), newProfile);
+      
+      // Also update public registry
+      await setDoc(doc(db, 'users_public', (regData.email || user.email!).toLowerCase().trim()), {
+        email: (regData.email || user.email!).toLowerCase().trim(),
+        name: regData.name,
+        uid: user.uid,
+        hasPassword: true
+      });
+
       console.log("Registration successful");
       await sendNotification('New Membership Request', `${regData.name} has applied for membership.`, ADMIN_EMAIL);
     } catch (error) {
@@ -1269,13 +1575,13 @@ export default function App() {
                 </Button>
               </div>
             ) : (
-              <Button onClick={handleLogin} disabled={isLoggingIn}>
-                {isLoggingIn ? (
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <Lock className="w-4 h-4" />
-                )}
-                {isLoggingIn ? 'Connecting...' : 'Member Login'}
+              <Button 
+                variant="outline"
+                onClick={() => setShowAdminLogin(true)} 
+                className="px-4 py-2 text-sm"
+              >
+                <Shield className="w-4 h-4" />
+                Admin Access
               </Button>
             )}
           </div>
@@ -1359,24 +1665,26 @@ export default function App() {
                 Join the authority today.
               </p>
               <div className="flex flex-wrap justify-center gap-4">
-                <Button onClick={handleLogin} className="px-8 py-4 text-lg" disabled={isLoggingIn}>
-                  {isLoggingIn ? (
-                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  ) : null}
-                  {isLoggingIn ? 'Opening Secure Portal...' : 'Get Started Now'}
+                <Button 
+                  onClick={() => {
+                    resetAuthFields();
+                    setAuthStep('register');
+                    setShowAuthModal(true);
+                  }} 
+                  className="px-8 py-4 text-lg"
+                >
+                  Get Started Now
                 </Button>
                 <Button 
                   variant="outline" 
                   onClick={() => {
-                    if (!user) {
-                      handleLogin();
-                    } else {
-                      setShowAdminLogin(true);
-                    }
+                    resetAuthFields();
+                    setAuthStep('password');
+                    setShowAuthModal(true);
                   }} 
                   className="px-8 py-4 text-lg"
                 >
-                  Admin Access
+                  Log In
                 </Button>
               </div>
             </motion.div>
@@ -2194,6 +2502,152 @@ export default function App() {
             Verify & Enter Dashboard
           </Button>
         </form>
+      </Modal>
+
+      <Modal 
+        isOpen={showAuthModal} 
+        onClose={() => setShowAuthModal(false)} 
+        title={
+          authStep === 'password' ? "Member Login" : 
+          "New Member Registration"
+        }
+      >
+        <div className="space-y-4">
+          {authStep === 'password' && (
+            <form onSubmit={handleEmailLogin} className="space-y-4">
+              <Input 
+                label="Email Address" 
+                type="email" 
+                required 
+                value={authEmail}
+                onChange={e => setAuthEmail(e.target.value)}
+                placeholder="Enter your email"
+              />
+              <Input 
+                label="Password" 
+                type={showPassword ? "text" : "password"} 
+                required 
+                value={authPassword}
+                onChange={e => setAuthPassword(e.target.value)}
+                placeholder="Enter password"
+              />
+              <div className="flex items-center gap-2 px-1">
+                <input 
+                  type="checkbox" 
+                  id="show-pw-login" 
+                  checked={showPassword} 
+                  onChange={() => setShowPassword(!showPassword)}
+                  className="w-3 h-3 rounded border-white/10 bg-white/5"
+                />
+                <label htmlFor="show-pw-login" className="text-[10px] font-bold text-blue-400/60 uppercase tracking-widest cursor-pointer">Show Password</label>
+              </div>
+              <div className="flex flex-col gap-3">
+                <Button type="submit" className="w-full py-3" disabled={isLoggingIn}>
+                  {isLoggingIn ? (
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : "Login to Dashboard"}
+                </Button>
+                
+                <div className="flex flex-col gap-2">
+                  <button 
+                    type="button"
+                    onClick={handleForgotPassword}
+                    className="text-xs text-blue-400/60 hover:underline text-center"
+                  >
+                    Forgot Password?
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      setAuthStep('register');
+                      setFoundProfile(null);
+                    }}
+                    className="text-xs text-amber-400/80 hover:underline text-center mt-1"
+                  >
+                    Don't have an account? Register here
+                  </button>
+                </div>
+              </div>
+            </form>
+          )}
+
+          {authStep === 'register' && (
+            <form onSubmit={handleEmailRegister} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <Input 
+                  label="Full Name" 
+                  required 
+                  value={regData.name}
+                  onChange={e => setRegData({...regData, name: e.target.value})}
+                />
+                <Input 
+                  label="Email Address" 
+                  type="email"
+                  required 
+                  value={authEmail}
+                  onChange={e => setAuthEmail(e.target.value)}
+                />
+                <Input 
+                  label="Phone Number" 
+                  required 
+                  value={regData.phone}
+                  onChange={e => setRegData({...regData, phone: e.target.value})}
+                />
+                <Input 
+                  label="NID Number" 
+                  required 
+                  value={regData.nid}
+                  onChange={e => setRegData({...regData, nid: e.target.value})}
+                />
+                <Input 
+                  label="Occupation" 
+                  required 
+                  value={regData.occupation}
+                  onChange={e => setRegData({...regData, occupation: e.target.value})}
+                />
+                <Input 
+                  label="Set Password" 
+                  type={showPassword ? "text" : "password"} 
+                  required 
+                  value={authPassword}
+                  onChange={e => setAuthPassword(e.target.value)}
+                  placeholder="Min 6 characters"
+                />
+              </div>
+              <div className="flex items-center gap-2 px-1">
+                <input 
+                  type="checkbox" 
+                  id="show-pw-reg" 
+                  checked={showPassword} 
+                  onChange={() => setShowPassword(!showPassword)}
+                  className="w-3 h-3 rounded border-white/10 bg-white/5"
+                />
+                <label htmlFor="show-pw-reg" className="text-[10px] font-bold text-blue-400/60 uppercase tracking-widest cursor-pointer">Show Password</label>
+              </div>
+              <Input 
+                label="Full Address" 
+                required 
+                value={regData.address}
+                onChange={e => setRegData({...regData, address: e.target.value})}
+              />
+              
+              <div className="flex flex-col gap-3 pt-2">
+                <Button type="submit" className="w-full py-3" disabled={isLoggingIn}>
+                  {isLoggingIn ? (
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : "Submit Registration"}
+                </Button>
+                <button 
+                  type="button"
+                  onClick={() => setAuthStep('password')}
+                  className="text-xs text-blue-400/60 hover:underline text-center"
+                >
+                  Already have an account? Login
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
       </Modal>
 
       <Modal 
