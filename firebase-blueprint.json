@@ -1,0 +1,52 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and financial summary",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "nid": { "type": "string" },
+        "address": { "type": "string" },
+        "occupation": { "type": "string" },
+        "phone": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved"] },
+        "memberId": { "type": "string" },
+        "totalLoan": { "type": "number" },
+        "totalDeposit": { "type": "number" },
+        "remainingDebt": { "type": "number" },
+        "role": { "type": "string", "enum": ["admin", "member"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "name", "phone", "status", "role"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Financial request (Loan, Deposit, Refund, Pay Due)",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "type": { "type": "string", "enum": ["loan", "deposit", "refund", "pay_due"] },
+        "amount": { "type": "number" },
+        "method": { "type": "string", "enum": ["Cash", "Bkash", "Nagad", "Recharge"] },
+        "accountNumber": { "type": "string" },
+        "transactionId": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "confirmed"] },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "memoId": { "type": "string" }
+      },
+      "required": ["userId", "type", "amount", "method", "status", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Financial transactions"
+    }
+  }
+}
