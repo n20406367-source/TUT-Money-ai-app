@@ -37,6 +37,50 @@
         "memoId": { "type": "string" }
       },
       "required": ["userId", "type", "amount", "method", "status", "timestamp"]
+    },
+    "Sponsorship": {
+      "title": "Sponsorship",
+      "description": "Corporate sponsorship deal",
+      "type": "object",
+      "properties": {
+        "companyName": { "type": "string" },
+        "dealValue": { "type": "number" },
+        "campaignType": { "type": "string", "enum": ["Premium Partner", "Strategic Collab", "Community Sponsor"] },
+        "promotionText": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "paused", "completed"] },
+        "impressions": { "type": "number" },
+        "startDate": { "type": "string" },
+        "endDate": { "type": "string" },
+        "logoUrl": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "videoUrl": { "type": "string" },
+        "targetUrl": { "type": "string" },
+        "specialOffer": { "type": "string" }
+      },
+      "required": ["companyName", "dealValue", "campaignType", "promotionText", "status", "impressions", "startDate", "endDate"]
+    },
+    "SystemControls": {
+      "title": "SystemControls",
+      "description": "System parameters and authority controls",
+      "type": "object",
+      "properties": {
+        "personalFund": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "System action audit log entry",
+      "type": "object",
+      "properties": {
+        "timestamp": { "type": "string", "format": "date-time" },
+        "actorEmail": { "type": "string" },
+        "actorName": { "type": "string" },
+        "action": { "type": "string" },
+        "details": { "type": "string" },
+        "severity": { "type": "string", "enum": ["info", "warning", "critical"] }
+      },
+      "required": ["timestamp", "actorEmail", "actorName", "action", "details", "severity"]
     }
   },
   "firestore": {
@@ -47,6 +91,18 @@
     "/transactions/{transactionId}": {
       "schema": "Transaction",
       "description": "Financial transactions"
+    },
+    "/sponsorships/{sponsorshipId}": {
+      "schema": "Sponsorship",
+      "description": "Corporate sponsorship campaigns"
+    },
+    "/system_controls/{documentId}": {
+      "schema": "SystemControls",
+      "description": "Authority settings and capital control parameters"
+    },
+    "/audit_logs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Regulatory audit log records"
     }
   }
 }

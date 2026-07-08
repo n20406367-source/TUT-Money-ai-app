@@ -1,21 +1,16 @@
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
-import localConfig from '../firebase-applet-config.json';
+import { initializeFirestore, getFirestore } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
+import firebaseConfig from '../firebase-applet-config.json';
 
-// Support environment variables for production deployment (e.g. Netlify)
-const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || localConfig.apiKey,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || localConfig.authDomain,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || localConfig.projectId,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || localConfig.storageBucket,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || localConfig.messagingSenderId,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || localConfig.appId,
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || localConfig.measurementId
-};
+// Ensure Firebase is only initialized once
+const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
-const databaseId = import.meta.env.VITE_FIREBASE_DATABASE_ID || localConfig.firestoreDatabaseId;
+// Hardened Firestore initialization for better connectivity in sandboxed environments
+export const db = initializeFirestore(app, {
+  experimentalForceLongPolling: true,
+}, firebaseConfig.firestoreDatabaseId || '(default)');
 
-const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, databaseId);
 export const auth = getAuth();
+export const storage = getStorage(app);

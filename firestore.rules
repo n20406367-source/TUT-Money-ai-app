@@ -42,61 +42,115 @@ service cloud.firestore {
     function isAdmin() {
       return isAuthenticated() && 
         (
-          request.auth.token.email.lower() == "tahsinullahtusher999@gmail.com" ||
+          request.auth.uid == "qLF3AOrlPaX4Jv43zy2uOOKeq952" ||
+          (request.auth.token.email != null && request.auth.token.email.toLowerCase() == "tahsinullahtusher999@gmail.com") ||
           (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
         );
     }
 
+    function isNumeric(val) {
+      return val is int || val is float;
+    }
+
     function isValidUser(data) {
       return data.keys().hasAll(['uid', 'name', 'phone', 'status', 'role']) &&
+             data.uid is string &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              data.phone is string && data.phone.size() >= 11 && data.phone.size() <= 15 &&
              data.status in ['pending', 'approved'] &&
              data.role in ['admin', 'member'] &&
-             (!('nid' in data) || (data.nid is string && data.nid.size() <= 20)) &&
-             (!('address' in data) || (data.address is string && data.address.size() <= 200)) &&
-             (!('occupation' in data) || (data.occupation is string && data.occupation.size() <= 100)) &&
-             (!('memberId' in data) || (data.memberId is string && data.memberId.size() <= 40)) &&
-             (!('totalLoan' in data) || data.totalLoan is number) &&
-             (!('totalDeposit' in data) || data.totalDeposit is number) &&
-             (!('remainingDebt' in data) || data.remainingDebt is number) &&
-             (!('createdAt' in data) || data.createdAt is timestamp);
+             (!('nid' in data) || (data.nid is string && data.nid.size() <= 30)) &&
+             (!('address' in data) || (data.address is string && data.address.size() <= 500)) &&
+             (!('occupation' in data) || (data.occupation is string && data.occupation.size() <= 200)) &&
+             (!('memberId' in data) || (data.memberId is string && data.memberId.size() <= 50)) &&
+             (!('totalLoan' in data) || isNumeric(data.totalLoan)) &&
+             (!('totalDeposit' in data) || isNumeric(data.totalDeposit)) &&
+             (!('remainingDebt' in data) || isNumeric(data.remainingDebt)) &&
+             (!('createdAt' in data) || data.createdAt is timestamp) &&
+             (!('email' in data) || (data.email is string && data.email.size() < 100)) &&
+             (!('facebook' in data) || data.facebook is string) &&
+             (!('whatsapp' in data) || data.whatsapp is string) &&
+             (!('telegram' in data) || data.telegram is string) &&
+             (!('fatherName' in data) || data.fatherName is string) &&
+             (!('motherName' in data) || data.motherName is string) &&
+             (!('dob' in data) || data.dob is string) &&
+             (!('bloodGroup' in data) || data.bloodGroup is string) &&
+             (!('emergencyContact' in data) || data.emergencyContact is string) &&
+             (!('nomineeName' in data) || data.nomineeName is string) &&
+             (!('nomineeRelation' in data) || data.nomineeRelation is string) &&
+             (!('subscriptionStatus' in data) || (data.subscriptionStatus is string)) &&
+             (!('subscriptionTier' in data) || (data.subscriptionTier is string)) &&
+             (!('subscriptionExpiresAt' in data) || (data.subscriptionExpiresAt is string)) &&
+             (!('continuousSubscriptionMonths' in data) || isNumeric(data.continuousSubscriptionMonths)) &&
+             (!('consecutiveNoLoanMonths' in data) || isNumeric(data.consecutiveNoLoanMonths)) &&
+             (!('loansTakenThisMonth' in data) || isNumeric(data.loansTakenThisMonth)) &&
+             (!('borrowingLimit' in data) || isNumeric(data.borrowingLimit));
     }
 
     function isValidTransaction(data) {
       return data.keys().hasAll(['userId', 'type', 'amount', 'method', 'status', 'timestamp']) &&
              data.userId is string &&
-             data.type in ['loan', 'deposit', 'refund', 'pay_due'] &&
-             data.amount is number && data.amount > 0 && data.amount < 100000000 &&
+             data.type in ['loan', 'deposit', 'refund', 'pay_due', 'subscription'] &&
+             isNumeric(data.amount) && data.amount > 0 && data.amount < 100000000 &&
              data.method in ['Cash', 'Bkash', 'Nagad', 'Recharge'] &&
              data.status in ['pending', 'confirmed'] &&
              (!('accountNumber' in data) || (data.accountNumber is string && data.accountNumber.size() < 50)) &&
              (!('transactionId' in data) || (data.transactionId is string && data.transactionId.size() < 100)) &&
              (!('userName' in data) || (data.userName is string && data.userName.size() < 100)) &&
-             (!('memoId' in data) || (data.memoId is string && data.memoId.size() < 50));
+             (!('memoId' in data) || (data.memoId is string && data.memoId.size() < 50)) &&
+             (!('loanReason' in data) || (data.loanReason is string)) &&
+             (!('estimatedRepaymentDate' in data) || (data.estimatedRepaymentDate is string)) &&
+             (!('lastReminderSent' in data) || (isNumeric(data.lastReminderSent) || data.lastReminderSent is string)) &&
+             (!('subscriptionTier' in data) || (data.subscriptionTier is string)) &&
+             (!('subscriptionMonths' in data) || isNumeric(data.subscriptionMonths));
+    }
+
+    function isValidSponsorship(data) {
+      return data.keys().hasAll(['companyName', 'dealValue', 'campaignType', 'promotionText', 'status', 'impressions', 'startDate', 'endDate']) &&
+             data.companyName is string && data.companyName.size() > 0 && data.companyName.size() <= 200 &&
+             isNumeric(data.dealValue) && data.dealValue >= 0 &&
+             data.campaignType in ['Premium Partner', 'Strategic Collab', 'Community Sponsor'] &&
+             data.promotionText is string && data.promotionText.size() > 0 && data.promotionText.size() <= 1000 &&
+             data.status in ['active', 'paused', 'completed'] &&
+             isNumeric(data.impressions) && data.impressions >= 0 &&
+             data.startDate is string &&
+             data.endDate is string &&
+             (!('clicks' in data) || isNumeric(data.clicks)) &&
+             (!('logoUrl' in data) || data.logoUrl is string) &&
+             (!('imageUrl' in data) || data.imageUrl is string) &&
+             (!('videoUrl' in data) || data.videoUrl is string) &&
+             (!('targetUrl' in data) || data.targetUrl is string) &&
+             (!('specialOffer' in data) || data.specialOffer is string);
+    }
+
+    function isValidAuditLog(data) {
+      return data.keys().hasAll(['timestamp', 'actorEmail', 'actorName', 'action', 'details', 'severity']) &&
+             data.timestamp is timestamp &&
+             data.actorEmail is string && data.actorEmail.size() > 0 &&
+             data.actorName is string && data.actorName.size() > 0 &&
+             data.action is string && data.action.size() > 0 &&
+             data.details is string && data.details.size() > 0 &&
+             data.severity in ['info', 'warning', 'critical'];
     }
 
     match /users/{userId} {
-      allow get: if isAuthenticated() && (isOwner(userId) || isAdmin());
-      allow list: if isAdmin();
-      allow create: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data) && 
+      allow get: if isAuthenticated() && (
+        isOwner(userId) || 
+        isAdmin() || 
+        (resource != null && resource.data.email != null && request.auth.token.email != null && resource.data.email.toLowerCase() == request.auth.token.email.toLowerCase())
+      );
+      allow list: if isAuthenticated() && (isOwner(userId) || isAdmin());
+      allow create: if isAuthenticated() && (isOwner(userId) || isAdmin()) && isValidUser(request.resource.data) && 
                     (request.resource.data.role == 'member' || (request.resource.data.role == 'admin' && isAdmin()));
       allow update: if isAuthenticated() && (
         (isOwner(userId) && request.resource.data.role == resource.data.role && request.resource.data.status == resource.data.status) ||
         isAdmin()
       ) && isValidUser(request.resource.data);
-      allow delete: if isAdmin();
-    }
-
-    match /users_public/{email} {
-      allow read: if true;
-      allow write: if isAdmin() || (isAuthenticated() && request.resource.data.email == email);
-    }
-
-    match /system/{docId} {
-      allow read: if true;
-      allow write: if isAdmin();
+      allow delete: if isAuthenticated() && (
+        isAdmin() || 
+        (resource != null && resource.data.email != null && request.auth.token.email != null && resource.data.email.toLowerCase() == request.auth.token.email.toLowerCase())
+      );
     }
 
     match /transactions/{transactionId} {
@@ -104,6 +158,27 @@ service cloud.firestore {
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && isValidTransaction(request.resource.data) && request.resource.data.status == 'pending';
       allow update: if isAdmin() && isValidTransaction(request.resource.data);
       allow delete: if isAdmin();
+    }
+
+    match /sponsorships/{sponsorshipId} {
+      allow read, list: if true;
+      allow create: if isAdmin() && isValidSponsorship(request.resource.data);
+      allow update: if (isAdmin() && isValidSponsorship(request.resource.data)) ||
+                       (isAuthenticated() && 
+                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['impressions', 'clicks']));
+      allow delete: if isAdmin();
+    }
+
+    match /system_controls/{documentId} {
+      allow read, list: if true;
+      allow create, update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /audit_logs/{logId} {
+      allow read, list: if isAdmin();
+      allow create: if isAdmin() && isValidAuditLog(request.resource.data);
+      allow update, delete: if false;
     }
   }
 }
