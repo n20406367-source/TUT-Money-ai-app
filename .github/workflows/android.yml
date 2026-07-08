@@ -1,20 +1,35 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+name: Build Android APK
 
-# Run and deploy your AI Studio app
+on:
+  workflow_dispatch:
 
-This contains everything you need to run your app locally.
+jobs:
+  build:
+    runs-on: ubuntu-latest
 
-View your app in AI Studio: https://ai.studio/apps/884d8dda-61da-42fa-9798-5147f9508a62
+    steps:
+      - uses: actions/checkout@v4
 
-## Run Locally
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
 
-**Prerequisites:**  Node.js
+      - run: npm install
+      - run: npm run build
 
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+      - run: npm install @capacitor/cli @capacitor/core @capacitor/android
+
+      - run: npx cap add android || true
+      - run: npx cap sync android
+
+      - run: cd android && chmod +x gradlew && ./gradlew assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
