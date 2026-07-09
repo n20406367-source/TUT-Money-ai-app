@@ -3,3 +3,13 @@ npm run build
 npx cap init
 npx cap add android
 npx cap sync
+import { CapacitorConfig } from '@capacitor/cli';
+
+const config: CapacitorConfig = {
+  appId: 'com.tut.money',
+  appName: 'T.U.T Money Lending Authority',
+  webDir: 'dist',
+  bundledWebRuntime: false
+};
+
+export default config;
