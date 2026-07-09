@@ -32,10 +32,18 @@ jobs:
       - name: Build web app
         run: npm run build
 
-      # Fixes the 'could not determine executable' error by ensuring CLI is available
+      # Automatically initializes Capacitor configuration if missing, then adds and syncs android
       - name: Capacitor Update & Sync
         run: |
           npm install @capacitor/cli @capacitor/android
+          
+          # Check if capacitor configuration exists; if not, initialize it automatically
+          if [ ! -f "capacitor.config.json" ] && [ ! -f "capacitor.config.ts" ]; then
+            echo "Capacitor config not found. Initializing..."
+            npx cap init "TUT App" "com.example.tutapp" --web-dir=dist
+          fi
+          
+          # Force add the android folder and sync
           npx cap add android || true
           npx cap sync android
 
